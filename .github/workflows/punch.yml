@@ -41,6 +41,8 @@ jobs:
           # Manual runs use the checkbox. Scheduled runs stay dry until the
           # repo variable LIVE is set to "1".
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && '1' || '0') || (vars.LIVE == '1' && '0' || '1') }}
+          # Manual dry runs ignore the day/time guards (they never click).
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ACTION="${{ inputs.action }}"
