@@ -18,3 +18,17 @@ Actions → **Darwinbox punch** → Run workflow → choose `in`/`out`, keep **D
 
 ## Pause it
 Actions → Darwinbox punch → ⋯ → Disable workflow (e.g. while on leave).
+
+## Trusted-device session (avoids OTP)
+Darwinbox asks for an OTP on new devices. To let GitHub skip it, save a trusted session once from your Mac:
+
+```bash
+git clone https://github.com/Ajinkyaa2004/Darwin-Automation.git
+cd Darwin-Automation
+npm install
+npx playwright install chromium
+node save-session.js
+```
+
+Log in in the window that opens (enter the OTP if asked). The session is copied to your clipboard; add it as repository secret `DARWINBOX_STATE`, then `rm darwinbox-state.txt`.
+If a run later fails with "asked for an OTP", repeat this.

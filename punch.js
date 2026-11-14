@@ -8,6 +8,7 @@
 //   FORCE=1          ignore week-off and time-window guards (manual runs only)
 
 const { chromium } = require("playwright");
+const zlib = require("zlib");
 
 const LOGIN_URL = "https://hudl.darwinbox.in/user/login?continue=%2Fms%2Fdb%2Fhome";
 const WEEK_OFFS = [4, 5]; // Thursday, Friday (IST)
@@ -48,20 +49,37 @@ function done(result, code = 0) {
     if (now.hour < from || now.hour >= to) done({ ok: true, skipped: "outside time window", ist: now });
   }
 
+  // Saved "trusted device" state from save-session.js (gzip + base64).
+  let storageState;
+  if (process.env.DARWINBOX_STATE) {
+    try {
+      storageState = JSON.parse(zlib.gunzipSync(Buffer.from(process.env.DARWINBOX_STATE.trim(), "base64")).toString());
+    } catch (e) {
+      done({ ok: false, error: "DARWINBOX_STATE is not valid; re-run save-session.js" }, 1);
+    }
+  }
+
   const browser = await chromium.launch({ headless: true });
   try {
     const ctx = await browser.newContext({
       timezoneId: "Asia/Kolkata", locale: "en-IN", viewport: { width: 420, height: 900 },
+      storageState,
     });
     const page = await ctx.newPage();
     page.setDefaultTimeout(30000);
+    const otpError = { ok: false, error: "Darwinbox asked for an OTP: saved device is no longer trusted. Re-run save-session.js on your Mac and update the DARWINBOX_STATE secret." };
 
-    // 1) Log in
+    // 1) Log in (skipped if the saved session is still logged in)
     await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded" });
-    await page.getByPlaceholder(/email|emp/i).first().fill(process.env.DARWINBOX_USER);
-    await page.getByPlaceholder(/password/i).first().fill(process.env.DARWINBOX_PASS);
-    await page.getByRole("button", { name: /sign in/i }).click();
-    await page.waitForURL(/\/ms\/db\/home/, { timeout: 45000 });
+    await page.waitForLoadState("networkidle").catch(() => {});
+    if (/otpauth/.test(page.url())) done(otpError, 1);
+    if (!/\/ms\/db\/home/.test(page.url())) {
+      await page.getByPlaceholder(/email|emp/i).first().fill(process.env.DARWINBOX_USER);
+      await page.getByPlaceholder(/password/i).first().fill(process.env.DARWINBOX_PASS);
+      await page.getByRole("button", { name: /sign in/i }).click();
+      await page.waitForURL(/\/ms\/db\/home|otpauth/, { timeout: 45000 });
+      if (/otpauth/.test(page.url())) done(otpError, 1);
+    }
 
     // 2) Read the clock card
     const btn = page.getByRole("button", { name: /^\s*clock\s*(in|out)\s*$/i }).first();
