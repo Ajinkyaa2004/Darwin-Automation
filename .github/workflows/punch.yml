@@ -1,0 +1,62 @@
+name: Darwinbox punch
+
+on:
+  schedule:
+    # Times are UTC. IST = UTC + 5:30. Days: Sat, Sun, Mon, Tue, Wed.
+    - cron: "5 8 * * 6,0,1,2,3"    # clock in  ~1:35 PM IST
+    - cron: "25 17 * * 6,0,1,2,3"  # clock out ~10:55 PM IST
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "in or out"
+        required: true
+        default: "in"
+        type: choice
+        options: [in, out]
+      dry_run:
+        description: "Dry run (log in and check, never click)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: darwinbox-punch
+  cancel-in-progress: false
+
+jobs:
+  punch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Punch
+        env:
+          DARWINBOX_USER: ${{ vars.DARWINBOX_USER }}
+          DARWINBOX_PASS: ${{ secrets.DARWINBOX_PASS }}
+          # Scheduled runs use the DRY_RUN repo variable; manual runs use the checkbox.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && '1' || '0') || vars.DRY_RUN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ACTION="${{ inputs.action }}"
+          elif [ "${{ github.event.schedule }}" = "5 8 * * 6,0,1,2,3" ]; then
+            ACTION=in
+          else
+            ACTION=out
+          fi
+          node punch.js "$ACTION"
+
+  # GitHub pauses schedules in repos with no activity for 60 days.
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/punch.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}
