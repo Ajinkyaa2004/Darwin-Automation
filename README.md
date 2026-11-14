@@ -10,8 +10,8 @@ Clocks in at ~1:35 PM IST and out at ~10:55 PM IST, Saturday to Wednesday (Thurs
 
 ## Settings
 - Secret `DARWINBOX_PASS`: your Darwinbox password (Settings → Secrets and variables → Actions → Secrets).
-- Variable `DARWINBOX_USER`: employee ID.
-- Variable `DRY_RUN`: `1` = log in and check only, `0` = live.
+- Variable `LIVE`: set to `1` to let scheduled runs actually click. Without it, scheduled runs are dry runs.
+- Employee ID is in `.github/workflows/punch.yml`.
 
 ## Manual run / test
 Actions → **Darwinbox punch** → Run workflow → choose `in`/`out`, keep **Dry run** ticked to test without clicking.

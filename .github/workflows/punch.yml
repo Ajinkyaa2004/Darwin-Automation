@@ -36,10 +36,11 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Punch
         env:
-          DARWINBOX_USER: ${{ vars.DARWINBOX_USER }}
+          DARWINBOX_USER: "13431"
           DARWINBOX_PASS: ${{ secrets.DARWINBOX_PASS }}
-          # Scheduled runs use the DRY_RUN repo variable; manual runs use the checkbox.
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && '1' || '0') || vars.DRY_RUN }}
+          # Manual runs use the checkbox. Scheduled runs stay dry until the
+          # repo variable LIVE is set to "1".
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && '1' || '0') || (vars.LIVE == '1' && '0' || '1') }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ACTION="${{ inputs.action }}"
