@@ -9,6 +9,8 @@
 
 const { chromium } = require("playwright");
 const zlib = require("zlib");
+const fs = require("fs");
+const { waitForOtp } = require("./otp");
 
 const LOGIN_URL = "https://hudl.darwinbox.in/user/login?continue=%2Fms%2Fdb%2Fhome";
 const WEEK_OFFS = [4, 5]; // Thursday, Friday (IST)
@@ -67,18 +69,45 @@ function done(result, code = 0) {
     });
     const page = await ctx.newPage();
     page.setDefaultTimeout(30000);
-    const otpError = { ok: false, error: "Darwinbox asked for an OTP: saved device is no longer trusted. Re-run save-session.js on your Mac and update the DARWINBOX_STATE secret." };
+
+    // Darwinbox sends an OTP when it doesn't recognise the device. Outlook forwards
+    // that email to Gmail; read the code from there and enter it.
+    async function handleOtp(sinceMs) {
+      fs.mkdirSync("debug", { recursive: true });
+      await page.waitForLoadState("networkidle").catch(() => {});
+      fs.writeFileSync("debug/otp-page.html", await page.content());
+      await page.screenshot({ path: "debug/otp-page.png", fullPage: true }).catch(() => {});
+      const code = await waitForOtp(sinceMs);
+      const inputs = page.locator("input:visible:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button])");
+      const n = await inputs.count();
+      if (n === 0) throw new Error("OTP page has no input box (see debug artifact)");
+      if (n >= code.length) {
+        for (let i = 0; i < code.length; i++) await inputs.nth(i).fill(code[i]);
+      } else {
+        await inputs.first().fill(code);
+      }
+      const remember = page.locator("input[type=checkbox]:visible");
+      for (let i = 0; i < await remember.count(); i++) await remember.nth(i).check().catch(() => {});
+      const submit = page.getByRole("button", { name: /verify|validate|submit|continue|confirm|sign in|proceed/i }).first();
+      if (await submit.count()) await submit.click(); else await inputs.last().press("Enter");
+      await page.waitForURL(/\/ms\/db\/home/, { timeout: 45000 }).catch(async () => {
+        await page.screenshot({ path: "debug/after-otp.png", fullPage: true }).catch(() => {});
+        throw new Error("Entered the OTP but did not reach the dashboard (see debug artifact)");
+      });
+    }
 
     // 1) Log in (skipped if the saved session is still logged in)
+    let otpSince = Date.now();
     await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle").catch(() => {});
-    if (/otpauth/.test(page.url())) done(otpError, 1);
+    if (/otpauth/.test(page.url())) await handleOtp(otpSince);
     if (!/\/ms\/db\/home/.test(page.url())) {
       await page.getByPlaceholder(/email|emp/i).first().fill(process.env.DARWINBOX_USER);
       await page.getByPlaceholder(/password/i).first().fill(process.env.DARWINBOX_PASS);
+      otpSince = Date.now();
       await page.getByRole("button", { name: /sign in/i }).click();
       await page.waitForURL(/\/ms\/db\/home|otpauth/, { timeout: 45000 });
-      if (/otpauth/.test(page.url())) done(otpError, 1);
+      if (/otpauth/.test(page.url())) await handleOtp(otpSince);
     }
 
     // 2) Read the clock card

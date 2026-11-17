@@ -45,6 +45,8 @@ jobs:
           DARWINBOX_USER: "13431"
           DARWINBOX_PASS: ${{ secrets.DARWINBOX_PASS }}
           DARWINBOX_STATE: ${{ secrets.DARWINBOX_STATE }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           # Manual runs use the checkbox. Scheduled runs stay dry until the
           # repo variable LIVE is set to "1".
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && '1' || '0') || (vars.LIVE == '1' && '0' || '1') }}
@@ -59,6 +61,14 @@ jobs:
             if [ "$HOUR" -lt 12 ]; then ACTION=in; else ACTION=out; fi
           fi
           node punch.js "$ACTION"
+      - name: Save debug screenshots if it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug
+          path: debug/
+          retention-days: 3
+          if-no-files-found: ignore
 
   # GitHub pauses schedules in repos with no activity for 60 days.
   keepalive:
