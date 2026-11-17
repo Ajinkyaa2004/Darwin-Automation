@@ -10,7 +10,7 @@
 const { chromium } = require("playwright");
 const zlib = require("zlib");
 const fs = require("fs");
-const { waitForOtp } = require("./otp");
+const { latestOtp } = require("./otp");
 
 const LOGIN_URL = "https://hudl.darwinbox.in/user/login?continue=%2Fms%2Fdb%2Fhome";
 const WEEK_OFFS = [4, 5]; // Thursday, Friday (IST)
@@ -75,48 +75,45 @@ function done(result, code = 0) {
     async function handleOtp(sinceMs) {
       fs.mkdirSync("debug", { recursive: true });
       await page.waitForLoadState("networkidle").catch(() => {});
-      fs.writeFileSync("debug/otp-page.html", await page.content());
+      const pageAt = Date.now();
       await page.screenshot({ path: "debug/otp-page.png", fullPage: true }).catch(() => {});
-      // Log the page's controls (labels only, nothing personal) to see what it expects.
-      const controls = await page.evaluate(() => {
-        const vis = (e) => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
-        const lab = (e) => (e.innerText || e.value || e.getAttribute("aria-label") || e.getAttribute("title") || "").trim().replace(/\s+/g, " ").slice(0, 40);
-        return {
-          url: location.pathname,
-          buttons: [...document.querySelectorAll("button, input[type=submit], input[type=button], [role=button]")].filter(vis).map(lab),
-          links: [...document.querySelectorAll("a")].filter(vis).map(lab).filter(Boolean),
-          inputs: [...document.querySelectorAll("input")].filter(vis).map((e) => ({ type: e.type, name: e.name, id: e.id, placeholder: e.placeholder, maxlength: e.maxLength })),
-          headings: [...document.querySelectorAll("h1,h2,h3,h4,label,p")].filter(vis).map(lab).filter((s) => s && !/@|dhumal|ajinkya/i.test(s)).slice(0, 15),
-        };
-      });
-      console.log(JSON.stringify({ otpPage: controls }, null, 1));
-      // If no new email comes in ~40s, click "Resend" if the page has one.
-      const resend = async () => {
-        const r = page.getByText(/resend/i).first();
-        if (await r.count()) await r.click();
+      const box = page.locator("input#otp, input[name=otp]").first();
+      if (!(await box.count())) throw new Error("OTP page has no OTP box (page changed?)");
+
+      const submit = async (otp, how) => {
+        console.log(JSON.stringify({ otp: how, emailAt: otp.at }));
+        await box.fill(otp.code);
+        await page.locator("input[type=submit], button[type=submit]").first().click();
+        await page.waitForURL(/\/ms\/db\/home/, { timeout: 20000 }).catch(() => {});
+        return /\/ms\/db\/home/.test(page.url());
       };
-      const otp = await waitForOtp(sinceMs, { onWaiting: resend });
-      console.log(JSON.stringify({ otp: otp.fresh ? "new email" : `reused email from ${otp.at}` }));
-      const code = otp.code;
-      const inputs = page.locator("input:visible:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button])");
-      const n = await inputs.count();
-      if (n === 0) throw new Error("OTP page has no input box (see debug artifact)");
-      if (n >= code.length) {
-        for (let i = 0; i < code.length; i++) await inputs.nth(i).fill(code[i]);
-      } else {
-        await inputs.first().fill(code);
+
+      // 1) Darwinbox keeps the last OTP active and only emails when it sends a
+      //    new one. Use a new email if one arrives, else the latest from 24h.
+      let otp = await latestOtp(sinceMs - 20000, 20000);
+      if (otp && await submit(otp, "new email")) return;
+      if (!otp) {
+        otp = await latestOtp(sinceMs - 24 * 3600000, 0);
+        if (otp && await submit(otp, "latest active OTP")) return;
       }
-      const remember = page.locator("input[type=checkbox]:visible");
-      for (let i = 0; i < await remember.count(); i++) await remember.nth(i).check().catch(() => {});
-      const submit = page.getByRole("button", { name: /verify|validate|submit|continue|confirm|sign in|proceed/i }).first();
-      if (await submit.count()) await submit.click(); else await inputs.last().press("Enter");
-      await page.waitForURL(/\/ms\/db\/home/, { timeout: 45000 }).catch(async () => {
-        await page.screenshot({ path: "debug/after-otp.png", fullPage: true }).catch(() => {});
-        throw new Error("Entered the OTP but did not reach the dashboard (wrong or expired code?)");
-      });
+
+      // 2) That didn't work: press "Resend OTP" (allowed after 30s) and use the new email.
+      await page.waitForTimeout(Math.max(0, 33000 - (Date.now() - pageAt)));
+      const resend = page.locator("a, button, span, div, input").filter({ hasText: /^\s*resend(\s+otp)?\s*$/i }).first();
+      const resendBtn = (await resend.count()) ? resend : page.locator("input[value*=esend i]").first();
+      if (!(await resendBtn.count())) {
+        await page.screenshot({ path: "debug/no-resend.png", fullPage: true }).catch(() => {});
+        throw new Error("OTP was not accepted and no Resend OTP button was found");
+      }
+      const resendAt = Date.now();
+      await resendBtn.click();
+      otp = await latestOtp(resendAt - 5000, 120000);
+      if (!otp) throw new Error("Clicked Resend OTP but no new OTP email reached Gmail within 2 minutes");
+      if (await submit(otp, "resent OTP")) return;
+      await page.screenshot({ path: "debug/after-otp.png", fullPage: true }).catch(() => {});
+      throw new Error("Entered the resent OTP but did not reach the dashboard");
     }
 
-    // 1) Log in (skipped if the saved session is still logged in)
     let otpSince = Date.now();
     await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle").catch(() => {});
