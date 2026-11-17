@@ -40,6 +40,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - name: Restore saved session
+        uses: actions/cache/restore@v4
+        with:
+          path: state/
+          key: dbx-state-${{ github.run_id }}
+          restore-keys: dbx-state-
       - name: Punch
         env:
           DARWINBOX_USER: "13431"
@@ -61,6 +67,12 @@ jobs:
             if [ "$HOUR" -lt 12 ]; then ACTION=in; else ACTION=out; fi
           fi
           node punch.js "$ACTION"
+      - name: Save session for next run
+        if: always() && hashFiles('state/state.bin') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: state/
+          key: dbx-state-${{ github.run_id }}
       - name: Save debug screenshots if it failed
         if: failure()
         uses: actions/upload-artifact@v4

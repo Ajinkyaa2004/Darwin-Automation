@@ -30,6 +30,28 @@ function istNow() {
   };
 }
 
+
+// Encrypted copy of the session cookies, carried between runs via the Actions cache.
+const crypto = require("crypto");
+const STATE_FILE = "state/state.bin";
+function stateKey() { return crypto.createHash("sha256").update("dbx-state:" + (process.env.DARWINBOX_PASS || "")).digest(); }
+function saveCarried(state) {
+  try {
+    const iv = crypto.randomBytes(12), c = crypto.createCipheriv("aes-256-gcm", stateKey(), iv);
+    const data = Buffer.concat([c.update(zlib.gzipSync(JSON.stringify(state))), c.final()]);
+    fs.mkdirSync("state", { recursive: true });
+    fs.writeFileSync(STATE_FILE, Buffer.concat([iv, c.getAuthTag(), data]));
+  } catch (_) {}
+}
+function loadCarried() {
+  try {
+    const b = fs.readFileSync(STATE_FILE);
+    const d = crypto.createDecipheriv("aes-256-gcm", stateKey(), b.subarray(0, 12));
+    d.setAuthTag(b.subarray(12, 28));
+    return JSON.parse(zlib.gunzipSync(Buffer.concat([d.update(b.subarray(28)), d.final()])).toString());
+  } catch (_) { return null; }
+}
+
 function done(result, code = 0) {
   console.log(JSON.stringify(result, null, 2));
   process.exit(code);
@@ -51,9 +73,11 @@ function done(result, code = 0) {
     if (now.hour < from || now.hour >= to) done({ ok: true, skipped: "outside time window", ist: now });
   }
 
-  // Saved "trusted device" state from save-session.js (gzip + base64).
-  let storageState;
-  if (process.env.DARWINBOX_STATE) {
+  // Saved "trusted device" cookies. Prefer the copy the last run saved
+  // (state.bin, kept in the Actions cache, encrypted), else the secret from save-session.js.
+  let storageState = loadCarried();
+  if (storageState) console.log(JSON.stringify({ session: "carried forward from last run" }));
+  if (!storageState && process.env.DARWINBOX_STATE) {
     try {
       storageState = JSON.parse(zlib.gunzipSync(Buffer.from(process.env.DARWINBOX_STATE.trim(), "base64")).toString());
     } catch (e) {
@@ -88,16 +112,12 @@ function done(result, code = 0) {
         return /\/ms\/db\/home/.test(page.url());
       };
 
-      // 1) Darwinbox keeps the last OTP active and only emails when it sends a
-      //    new one. Use a new email if one arrives, else the latest from 24h.
-      let otp = await latestOtp(sinceMs - 20000, 20000);
+      // 1) Use a new OTP email if one arrives. (No guessing with old codes:
+      //    wrong attempts are limited and could lock the account.)
+      let otp = await latestOtp(sinceMs - 20000, 25000);
       if (otp && await submit(otp, "new email")) return;
-      if (!otp) {
-        otp = await latestOtp(sinceMs - 24 * 3600000, 0);
-        if (otp && await submit(otp, "latest active OTP")) return;
-      }
 
-      // 2) That didn't work: press "Resend OTP" (allowed after 30s) and use the new email.
+      // 2) No email: press "Resend OTP" (allowed after 30s) and use the new email.
       await page.waitForTimeout(Math.max(0, 33000 - (Date.now() - pageAt)));
       const resend = page.locator("a, button, span, div, input").filter({ hasText: /^\s*resend(\s+otp)?\s*$/i }).first();
       const resendBtn = (await resend.count()) ? resend : page.locator("input[value*=esend i]").first();
@@ -126,6 +146,9 @@ function done(result, code = 0) {
       await page.waitForURL(/\/ms\/db\/home|otpauth/, { timeout: 45000 });
       if (/otpauth/.test(page.url())) await handleOtp(otpSince);
     }
+
+    // Keep Darwinbox's latest cookies for the next run, like a browser would.
+    saveCarried(await ctx.storageState());
 
     // 2) Read the clock card
     const btn = page.getByRole("button", { name: /^\s*clock\s*(in|out)\s*$/i }).first();
