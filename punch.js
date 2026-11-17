@@ -77,6 +77,19 @@ function done(result, code = 0) {
       await page.waitForLoadState("networkidle").catch(() => {});
       fs.writeFileSync("debug/otp-page.html", await page.content());
       await page.screenshot({ path: "debug/otp-page.png", fullPage: true }).catch(() => {});
+      // Log the page's controls (labels only, nothing personal) to see what it expects.
+      const controls = await page.evaluate(() => {
+        const vis = (e) => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
+        const lab = (e) => (e.innerText || e.value || e.getAttribute("aria-label") || e.getAttribute("title") || "").trim().replace(/\s+/g, " ").slice(0, 40);
+        return {
+          url: location.pathname,
+          buttons: [...document.querySelectorAll("button, input[type=submit], input[type=button], [role=button]")].filter(vis).map(lab),
+          links: [...document.querySelectorAll("a")].filter(vis).map(lab).filter(Boolean),
+          inputs: [...document.querySelectorAll("input")].filter(vis).map((e) => ({ type: e.type, name: e.name, id: e.id, placeholder: e.placeholder, maxlength: e.maxLength })),
+          headings: [...document.querySelectorAll("h1,h2,h3,h4,label,p")].filter(vis).map(lab).filter((s) => s && !/@|dhumal|ajinkya/i.test(s)).slice(0, 15),
+        };
+      });
+      console.log(JSON.stringify({ otpPage: controls }, null, 1));
       // If no new email comes in ~40s, click "Resend" if the page has one.
       const resend = async () => {
         const r = page.getByText(/resend/i).first();
