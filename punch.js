@@ -77,7 +77,14 @@ function done(result, code = 0) {
       await page.waitForLoadState("networkidle").catch(() => {});
       fs.writeFileSync("debug/otp-page.html", await page.content());
       await page.screenshot({ path: "debug/otp-page.png", fullPage: true }).catch(() => {});
-      const code = await waitForOtp(sinceMs);
+      // If no new email comes in ~40s, click "Resend" if the page has one.
+      const resend = async () => {
+        const r = page.getByText(/resend/i).first();
+        if (await r.count()) await r.click();
+      };
+      const otp = await waitForOtp(sinceMs, { onWaiting: resend });
+      console.log(JSON.stringify({ otp: otp.fresh ? "new email" : `reused email from ${otp.at}` }));
+      const code = otp.code;
       const inputs = page.locator("input:visible:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button])");
       const n = await inputs.count();
       if (n === 0) throw new Error("OTP page has no input box (see debug artifact)");
@@ -92,7 +99,7 @@ function done(result, code = 0) {
       if (await submit.count()) await submit.click(); else await inputs.last().press("Enter");
       await page.waitForURL(/\/ms\/db\/home/, { timeout: 45000 }).catch(async () => {
         await page.screenshot({ path: "debug/after-otp.png", fullPage: true }).catch(() => {});
-        throw new Error("Entered the OTP but did not reach the dashboard (see debug artifact)");
+        throw new Error("Entered the OTP but did not reach the dashboard (wrong or expired code?)");
       });
     }
 
