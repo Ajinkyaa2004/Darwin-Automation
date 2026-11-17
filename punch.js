@@ -52,8 +52,12 @@ function loadCarried() {
   } catch (_) { return null; }
 }
 
+// In Mac mode Chrome must be closed properly so it saves the cookies, so
+// done() unwinds to the finally block instead of exiting on the spot.
+class DoneSignal { constructor(code) { this.code = code; } }
 function done(result, code = 0) {
   console.log(JSON.stringify(result, null, 2));
+  if (globalThis.__ctx) throw new DoneSignal(code);
   process.exit(code);
 }
 
@@ -85,13 +89,18 @@ function done(result, code = 0) {
     }
   }
 
-  const browser = await chromium.launch({ headless: true });
+  // Mac version (MAC_PROFILE=1): use the persistent Chrome profile Darwinbox remembers.
+  const macMode = process.env.MAC_PROFILE === "1";
+  const browser = macMode ? null : await chromium.launch({ headless: true });
   try {
-    const ctx = await browser.newContext({
-      timezoneId: "Asia/Kolkata", locale: "en-IN", viewport: { width: 420, height: 900 },
-      storageState,
-    });
-    const page = await ctx.newPage();
+    const ctx = macMode
+      ? await require("./mac/browser").openProfile(chromium, { headless: true })
+      : await browser.newContext({
+          timezoneId: "Asia/Kolkata", locale: "en-IN", viewport: { width: 420, height: 900 },
+          storageState,
+        });
+    globalThis.__ctx = ctx;
+    const page = macMode ? (ctx.pages()[0] || await ctx.newPage()) : await ctx.newPage();
     page.setDefaultTimeout(30000);
 
     // Darwinbox sends an OTP when it doesn't recognise the device. Outlook forwards
@@ -148,7 +157,7 @@ function done(result, code = 0) {
     }
 
     // Keep Darwinbox's latest cookies for the next run, like a browser would.
-    saveCarried(await ctx.storageState());
+    if (!macMode) saveCarried(await ctx.storageState());
 
     // 2) Read the clock card
     const btn = page.getByRole("button", { name: /^\s*clock\s*(in|out)\s*$/i }).first();
@@ -185,8 +194,10 @@ function done(result, code = 0) {
     const ok = resp.ok() && body.status === "success";
     done({ ok, clicked: true, message: body.message, ...state }, ok ? 0 : 1);
   } catch (err) {
+    if (err instanceof DoneSignal) throw err;
     done({ ok: false, error: String(err && err.message || err) }, 1);
   } finally {
-    await browser.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
+    else await globalThis.__ctx?.close().catch(() => {});
   }
-})();
+})().then(() => process.exit(0), (e) => process.exit(e instanceof DoneSignal ? e.code : 1));

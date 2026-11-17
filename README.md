@@ -32,3 +32,19 @@ node save-session.js
 
 Log in in the window that opens (enter the OTP if asked). The session is copied to your clipboard; add it as repository secret `DARWINBOX_STATE`, then `rm darwinbox-state.txt`.
 If a run later fails with "asked for an OTP", repeat this.
+
+## Mac version (recommended)
+
+Darwinbox asks GitHub's servers for an OTP on every run, so the reliable setup
+runs on your own Mac, which Darwinbox already remembers.
+
+1. `git pull` in this folder.
+2. `bash mac/install.sh` – asks for your employee ID and Darwinbox password
+   (saved only in `~/.darwinbox/env`), schedules clock in 1:35 PM and clock out
+   10:55 PM (Sat to Wed), and wakes the Mac at 1:33 PM.
+3. `node mac/login.js` – sign in once in the Chrome window, tick **Remember me**.
+4. Test without clicking: `MAC_PROFILE=1 DRY_RUN=1 FORCE=1 bash -c 'set -a; . ~/.darwinbox/env; node punch.js in'`
+
+Results: a macOS notification each time, plus `~/.darwinbox/punch.log`.
+The Mac must be plugged in and asleep (lid closed is fine), not shut down.
+Remove it with `bash mac/uninstall.sh`.
