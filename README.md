@@ -40,8 +40,9 @@ runs on your own Mac, which Darwinbox already remembers.
 
 1. `git pull` in this folder.
 2. `bash mac/install.sh` – asks for your employee ID and Darwinbox password
-   (saved only in `~/.darwinbox/env`), schedules clock in 1:35 PM and clock out
-   10:55 PM (Sat to Wed), and wakes the Mac at 1:33 PM.
+   (saved only in `~/.darwinbox/env`), schedules clock in 1:40 PM and clock out
+   11:00 PM (Sat to Wed, 5 min after the GitHub run, so it only acts if that
+   one missed), and wakes the Mac at 1:38 PM.
 3. `node mac/login.js` – sign in once in the Chrome window, tick **Remember me**.
 4. Test without clicking: `MAC_PROFILE=1 DRY_RUN=1 FORCE=1 bash -c 'set -a; . ~/.darwinbox/env; node punch.js in'`
 

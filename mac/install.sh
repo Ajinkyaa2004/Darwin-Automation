@@ -19,7 +19,7 @@ else
   echo "     (already saved; delete ~/.darwinbox/env to change it)"
 fi
 
-echo "3/4  Scheduling clock in 1:35 PM and clock out 10:55 PM, Sat to Wed..."
+echo "3/4  Scheduling clock in 1:40 PM and clock out 11:00 PM (backup, 5 min after GitHub), Sat to Wed..."
 make_plist () {  # label action hour minute
   cat > "$HOME/Library/LaunchAgents/$1.plist" <<PL
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,10 +38,10 @@ PL
   launchctl unload "$HOME/Library/LaunchAgents/$1.plist" 2>/dev/null || true
   launchctl load "$HOME/Library/LaunchAgents/$1.plist"
 }
-make_plist com.darwinbox.clockin in 13 35
-make_plist com.darwinbox.clockout out 22 55
+make_plist com.darwinbox.clockin in 13 40
+make_plist com.darwinbox.clockout out 23 0
 
 echo "4/4  Waking the Mac before clock-in (needs your Mac login password)..."
-sudo pmset repeat wakeorpoweron SMTWU 13:33:00
+sudo pmset repeat wakeorpoweron SMTWU 13:38:00
 echo
 echo "Installed. Next: run  node mac/login.js  once and sign in (tick Remember me)."
