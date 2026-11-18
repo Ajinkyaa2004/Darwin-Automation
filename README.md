@@ -49,3 +49,21 @@ runs on your own Mac, which Darwinbox already remembers.
 Results: a macOS notification each time, plus `~/.darwinbox/punch.log`.
 The Mac must be plugged in and asleep (lid closed is fine), not shut down.
 Remove it with `bash mac/uninstall.sh`.
+
+## Changing your week offs or shift times
+
+Everything lives in **`schedule.json`**:
+
+```json
+{ "weekOffs": ["Thu", "Fri"], "clockIn": "13:35", "clockOut": "22:55" }
+```
+
+When your schedule changes, do these three things:
+
+1. **Edit `schedule.json`** (on GitHub: open the file → pencil icon → Commit).
+2. **cron-job.org**: set the two jobs to the new clock-in and clock-out times
+   (they can run every day; week offs are skipped by the script).
+3. **Mac**: in this folder run `git pull && bash mac/install.sh`.
+
+Each punch is only allowed from 30 min before to 3 h after its time, so a late
+or misfired run can't clock you in at night or out in the afternoon.

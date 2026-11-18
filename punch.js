@@ -13,20 +13,31 @@ const fs = require("fs");
 const { latestOtp } = require("./otp");
 
 const LOGIN_URL = "https://hudl.darwinbox.in/user/login?continue=%2Fms%2Fdb%2Fhome";
-const WEEK_OFFS = [4, 5]; // Thursday, Friday (IST)
-
-// Hours (IST) in which each action is allowed, so a badly delayed run can't
-// clock you in at night or out in the afternoon.
-const WINDOWS = { in: [12, 20], out: [21, 24] };
+// Your week offs and shift times live in schedule.json (the only file to edit).
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SCHEDULE = JSON.parse(fs.readFileSync(require("path").join(__dirname, "schedule.json"), "utf8"));
+const WEEK_OFFS = SCHEDULE.weekOffs.map((d) => DAYS.indexOf(d.slice(0, 3)));
+const toMin = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+// Each action is only allowed from 30 min before to 3 h after its time, so a
+// badly delayed run can't clock you in at night or out in the afternoon.
+const WINDOWS = {
+  in: [toMin(SCHEDULE.clockIn) - 30, toMin(SCHEDULE.clockIn) + 180],
+  out: [toMin(SCHEDULE.clockOut) - 30, toMin(SCHEDULE.clockOut) + 180],
+};
+function inWindow(min, [from, to]) {   // works across midnight
+  const d = (x) => ((x % 1440) + 1440) % 1440;
+  return d(min - from) <= d(to - from);
+}
 
 function istNow() {
   const f = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Kolkata", weekday: "short", hour: "numeric", hourCycle: "h23",
+    timeZone: "Asia/Kolkata", weekday: "short", hour: "numeric", minute: "numeric", hourCycle: "h23",
   }).formatToParts(new Date());
   const get = (t) => f.find((p) => p.type === t).value;
   return {
     day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday")),
     hour: Number(get("hour")),
+    minute: Number(get("minute")),
   };
 }
 
@@ -72,9 +83,12 @@ function done(result, code = 0) {
   const force = process.env.FORCE === "1";
   const now = istNow();
   if (!force) {
-    if (WEEK_OFFS.includes(now.day)) done({ ok: true, skipped: "week off", ist: now });
-    const [from, to] = WINDOWS[action];
-    if (now.hour < from || now.hour >= to) done({ ok: true, skipped: "outside time window", ist: now });
+    const min = now.hour * 60 + now.minute;
+    // A clock-out just after midnight belongs to the previous day's shift.
+    const shiftDay = action === "out" && min < toMin(SCHEDULE.clockIn) - 30 && toMin(SCHEDULE.clockOut) + 180 > 1440
+      ? (now.day + 6) % 7 : now.day;
+    if (WEEK_OFFS.includes(shiftDay)) done({ ok: true, skipped: "week off", ist: now });
+    if (!inWindow(min, WINDOWS[action])) done({ ok: true, skipped: "outside time window", ist: now });
   }
 
   // Saved "trusted device" cookies. Prefer the copy the last run saved

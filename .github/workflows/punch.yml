@@ -1,16 +1,10 @@
 name: Darwinbox punch
 
 on:
+  # The real punches are started by cron-job.org (exact times). This daily
+  # schedule only keeps the workflow enabled (GitHub pauses idle repos).
   schedule:
-    # Times are UTC. IST = UTC + 5:30. Days: Sat, Sun, Mon, Tue, Wed.
-    # Several tries each, because GitHub often delays or drops scheduled runs.
-    # Extra tries are harmless: the script never punches twice.
-    - cron: "5 8 * * 6,0,1,2,3"    # clock in  ~1:35 PM IST
-    - cron: "35 8 * * 6,0,1,2,3"   # clock in  retry ~2:05 PM
-    - cron: "17 9 * * 6,0,1,2,3"   # clock in  retry ~2:47 PM
-    - cron: "25 17 * * 6,0,1,2,3"  # clock out ~10:55 PM IST
-    - cron: "47 17 * * 6,0,1,2,3"  # clock out retry ~11:17 PM
-    - cron: "7 18 * * 6,0,1,2,3"   # clock out retry ~11:37 PM
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       action:
@@ -30,6 +24,7 @@ concurrency:
 
 jobs:
   punch:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -53,20 +48,10 @@ jobs:
           DARWINBOX_STATE: ${{ secrets.DARWINBOX_STATE }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          # Manual runs use the checkbox. Scheduled runs stay dry until the
-          # repo variable LIVE is set to "1".
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && '1' || '0') || (vars.LIVE == '1' && '0' || '1') }}
-          # Manual dry runs ignore the day/time guards (they never click).
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            ACTION="${{ inputs.action }}"
-          else
-            # Hour field of the cron that fired: 8-9 UTC = in, 17-18 UTC = out.
-            HOUR=$(echo "${{ github.event.schedule }}" | awk '{print $2}')
-            if [ "$HOUR" -lt 12 ]; then ACTION=in; else ACTION=out; fi
-          fi
-          node punch.js "$ACTION"
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+          # Dry runs ignore the day/time guards (they never click).
+          FORCE: ${{ inputs.dry_run && '1' || '0' }}
+        run: node punch.js "${{ inputs.action }}"
       - name: Save session for next run
         if: always() && hashFiles('state/state.bin') != ''
         uses: actions/cache/save@v4
