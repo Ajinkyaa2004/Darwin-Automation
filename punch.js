@@ -165,6 +165,11 @@ function done(result, code = 0) {
       await page.getByPlaceholder(/email|emp/i).first().fill(process.env.DARWINBOX_USER);
       await page.getByPlaceholder(/password/i).first().fill(process.env.DARWINBOX_PASS);
       otpSince = Date.now();
+      // Darwinbox sometimes shows a "Let us know you're human" CAPTCHA. That needs a
+      // person, so stop cleanly instead of trying to get past it.
+      if (await page.getByText(/let us know you.re human|captcha/i).count()) {
+        done({ ok: false, error: "Darwinbox is showing a CAPTCHA on the login page. A person has to sign in: run node save-session.js (cloud) or node mac/login.js (Mac)." }, 1);
+      }
       await page.getByRole("button", { name: /sign in/i }).click();
       await page.waitForURL(/\/ms\/db\/home|otpauth/, { timeout: 45000 }).catch(async (e) => {
         // Log what the page shows (labels and messages only) so failures are diagnosable.
