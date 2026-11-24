@@ -166,7 +166,24 @@ function done(result, code = 0) {
       await page.getByPlaceholder(/password/i).first().fill(process.env.DARWINBOX_PASS);
       otpSince = Date.now();
       await page.getByRole("button", { name: /sign in/i }).click();
-      await page.waitForURL(/\/ms\/db\/home|otpauth/, { timeout: 45000 });
+      await page.waitForURL(/\/ms\/db\/home|otpauth/, { timeout: 45000 }).catch(async (e) => {
+        // Log what the page shows (labels and messages only) so failures are diagnosable.
+        const info = await page.evaluate(() => {
+          const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+          const txt = (el) => (el.innerText || el.value || el.getAttribute("aria-label") || "").trim().replace(/\s+/g, " ").slice(0, 120);
+          const pick = (sel) => [...document.querySelectorAll(sel)].filter(vis).map(txt).filter((s) => s && !/@|dhumal|ajinkya|\d{5}/i.test(s));
+          return {
+            url: location.pathname + location.search,
+            title: document.title,
+            messages: pick(".error, .alert, .toast, [role=alert], .help-block, .invalid-feedback, .text-danger, .errorMsg, .err, small, label, p, h1, h2, h3, h4").slice(0, 25),
+            buttons: pick("button, input[type=submit], a.btn").slice(0, 15),
+            inputs: [...document.querySelectorAll("input")].filter(vis).map((i) => ({ type: i.type, name: i.name, placeholder: i.placeholder })),
+            iframes: [...document.querySelectorAll("iframe")].map((f) => (f.src || "").slice(0, 80)),
+          };
+        }).catch(() => ({}));
+        console.log(JSON.stringify({ stuckAfterSignIn: info }, null, 1));
+        throw e;
+      });
       if (/otpauth/.test(page.url())) await handleOtp(otpSince);
     }
 
